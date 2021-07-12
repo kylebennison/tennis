@@ -57,42 +57,30 @@ rm(list = c("tennis_clean", "tennis_clean2", "tennis_small", "tennis_test", "mat
 
 # Start of building win probability model ---------------------------------
 
-library(tidymodels)
-
-###
-# Pivoting longer by player so each player gets their own row for each point
-
-data_player <- data_cleaned %>% 
-  pivot_longer(cols = c(first_player, second_player),
-               names_to = "player_number", values_to = "player_name") %>% 
-  mutate(is_winner = as.factor(if_else(player_name == match_winner, 1, 0)))
-
-# Trying a different method instead
-# Taking top 100k rows due to xgboost error about size of object
-# Treating outcome as a factor
-
-data_player <- data_cleaned %>% 
-  mutate(player_1_outcome = as.integer(if_else(first_player == match_winner, 1, 0))) %>% 
-  select(Pt, Set1, Set2, Gm1, Gm2, Svr, `1stIn`, `2ndIn`, game_point, set_num, player_1_outcome) %>% 
-  slice_head(n = 100000L)
-
-###
+# Add match outcome for first player
+data_cleaned <- data_cleaned %>% 
+  mutate(player_1_outcome = as.integer(if_else(first_player == match_winner, 1, 0)))
 
 # Split data
 set.seed(1234)
 
-y.train <- data_player$player_1_outcome
-x.train <- data_player %>% select(-player_1_outcome) %>% 
+y.train <- data_cleaned$player_1_outcome
+
+x.train <- data_cleaned %>% 
+  select(Pt, Set1, Set2, Gm1, Gm2, Svr, `1stIn`, `2ndIn`, game_point, set_num) %>% 
   as.matrix()
+
 x.leftover <- data_cleaned %>% 
-  mutate(player_1_outcome = as.integer(if_else(first_player == match_winner, 1, 0))) %>% 
-  select(-c(Pt, Set1, Set2, Gm1, Gm2, Svr, `1stIn`, `2ndIn`, game_point, set_num, player_1_outcome)) %>% 
-  slice_head(n = 100000L)
+  select(-c(Pt, Set1, Set2, Gm1, Gm2, Svr, `1stIn`, `2ndIn`, game_point, set_num, player_1_outcome))
 
 x.test <- data_cleaned %>%
-  filter(match_id == "20210620-M-Queens_Club-F-Cameron_Norrie-Matteo_Berrettini") %>% 
-  mutate(player_1_outcome = as.factor(if_else(first_player == match_winner, 1, 0))) %>% 
+  filter(match_id == "20210613-M-Roland_Garros-F-Stefanos_Tsitsipas-Novak_Djokovic") %>% 
   select(Pt, Set1, Set2, Gm1, Gm2, Svr, `1stIn`, `2ndIn`, game_point, set_num) %>% 
+  as.matrix()
+
+x.test.leftover <- data_cleaned %>%
+  filter(match_id == "20210613-M-Roland_Garros-F-Stefanos_Tsitsipas-Novak_Djokovic") %>% 
+  select(-c(Pt, Set1, Set2, Gm1, Gm2, Svr, `1stIn`, `2ndIn`, game_point, set_num)) %>% 
   as.matrix()
 
 # Prep for XGboost
@@ -116,7 +104,7 @@ param <- list(  objective           = "binary:logistic",
 )
 
 #run this for training, otherwise skip
-XGBm <- xgb.cv(params=param,nfold=5,nrounds=50,missing=NA,data=dtrain,print_every_n=10, early_stopping_rounds = 25)
+XGBm <- xgb.cv(params=param,nfold=5,nrounds=100,missing=NA,data=dtrain,print_every_n=10, early_stopping_rounds = 25)
 
 #train the full model
 watchlist <- list( train = dtrain)
@@ -127,8 +115,14 @@ library(zoo)
 res <- x.test %>% as_tibble()
 res$winprob <- predict(XGBm, newdata = dtest)
 
-res %>% ggplot(aes(x=Pt, y=winprob)) +geom_line() + #rollmean(winprob, 5, na.pad = TRUE))
-  ylim(0,1)
+res %>% 
+  cbind(x.test.leftover) %>% 
+  ggplot(aes(x=Pt, y=winprob)) +geom_line() + #rollmean(winprob, 5, na.pad = TRUE))
+  ylim(0,1) +
+  labs(title = "2021 Roland Garros Final - Tsitsipas vs. Djokovic") +
+  geom_text(aes(label = paste0(first_player, " Win Probability"),
+                 x = 100,
+                 y = .95))
 
 
 #test on full data, and add back in features so we can look at specific plays
