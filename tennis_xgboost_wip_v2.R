@@ -70,7 +70,7 @@ x.train <- data_cleaned %>%
   select(Pt, Set1, Set2, Gm1, Gm2, Svr, `1stIn`, `2ndIn`, game_point, set_num) %>% 
   as.matrix()
 
-x.leftover <- data_cleaned %>% 
+x.train.leftover <- data_cleaned %>% 
   select(-c(Pt, Set1, Set2, Gm1, Gm2, Svr, `1stIn`, `2ndIn`, game_point, set_num, player_1_outcome))
 
 x.test <- data_cleaned %>%
@@ -126,30 +126,51 @@ res %>%
 
 
 #test on full data, and add back in features so we can look at specific plays
-x.train.copy <- x.train
-x.train.copy <- x.train.copy %>% as_tibble()
+x.train.copy <- x.train %>% as_tibble()
 x.train.copy$winprob <- predict(XGBm, newdata = dtrain)
 x.train.copy$actualhomeresults <- y.train
+
 #add in original extra data
 res <- cbind(x.train.copy, x.train.leftover)
 
-#plot any game
-x <- res %>% filter(year==2019, week==14, home=="Nebraska", away=="Iowa") %>% 
-  ggplot(aes(x=-clock_in_seconds, y=winprob)) +geom_line() + #rollmean(winprob, 5, na.pad = TRUE))
-  ylim(0,1)
+#plot any match
+match_title <- "20210613-M-Roland_Garros-F-Stefanos_Tsitsipas-Novak_Djokovic"
+
+res %>% 
+  filter(match_id == match_title) %>% 
+  ggplot(aes(x=Pt, y=winprob)) + geom_line() + #rollmean(winprob, 5, na.pad = TRUE))
+  ylim(0,1) +
+  labs(title = match_title) +
+  geom_text(aes(label = paste0(first_player, " Win Probability"),
+                x = 100,
+                y = .95))
 
 # Plot predicted vs. actual
 res %>% 
   mutate(win_prob_bucket = round(winprob, digits = 2)) %>% 
   group_by(win_prob_bucket) %>% 
-  summarise(mean_actual = mean(home_outcome)) %>% 
+  summarise(mean_actual = mean(actualhomeresults)) %>% 
   ggplot(aes(x = win_prob_bucket, y = mean_actual)) +
   geom_point() +
-  geom_abline()
+  geom_abline() +
+  geom_text(x = .5, y = .2, label = "Overconfident") +
+  geom_text(x = .5, y = .9, label = "Underconfident")
 
+# Distribution of probabilities given out
+res %>% 
+  ggplot(aes(x = winprob)) + 
+  geom_density(fill = staturdays_colors("orange"), alpha = .3)
 
-###
+# Variable importance
+library(vip)
 
-tennis_split <- initial_split(data_player, strata = player_1_outcome)
-tennis_train <- training(tennis_split)
-tennis_test <- testing(tennis_split)
+vip(XGBm)
+
+# Roc Auc (not sure why it's inverted since auc when calling XGBm is .85)
+res %>% 
+  roc_auc(truth = as.factor(actualhomeresults), winprob)
+
+res %>% 
+  roc_curve(truth = as.factor(actualhomeresults), winprob) %>% 
+  ggplot(aes(x = 1- specificity, y = sensitivity)) +
+  geom_line()
