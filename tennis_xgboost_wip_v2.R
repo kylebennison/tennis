@@ -109,12 +109,14 @@ x.train.leftover <- data_cleaned %>%
 
 x.test <- data_cleaned %>%
   filter(match_id == "20210613-M-Roland_Garros-F-Stefanos_Tsitsipas-Novak_Djokovic") %>% 
-  select(Pt, Set1, Set2, Gm1, Gm2, Svr, `1stIn`, `2ndIn`, game_point, set_num) %>% 
+  select(Pt, Set1, Set2, Gm1, Gm2, Svr, `1stIn`, `2ndIn`, game_point, set_num,
+         sets_needed_to_win, p1_game_points_pre_serve, p2_game_points_pre_serve) %>% 
   as.matrix()
 
 x.test.leftover <- data_cleaned %>%
   filter(match_id == "20210613-M-Roland_Garros-F-Stefanos_Tsitsipas-Novak_Djokovic") %>% 
-  select(-c(Pt, Set1, Set2, Gm1, Gm2, Svr, `1stIn`, `2ndIn`, game_point, set_num)) %>% 
+  select(-c(Pt, Set1, Set2, Gm1, Gm2, Svr, `1stIn`, `2ndIn`, game_point, set_num,
+            sets_needed_to_win, p1_game_points_pre_serve, p2_game_points_pre_serve)) %>% 
   as.matrix()
 
 # Prep for XGboost
@@ -199,6 +201,8 @@ res %>%
 library(vip)
 
 vip(XGBm)
+
+library(tidymodels)
 
 # Roc Auc (not sure why it's inverted since auc when calling XGBm is .85)
 res %>% 
