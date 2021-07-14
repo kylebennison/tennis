@@ -30,17 +30,43 @@ tennis_clean <- tennis_test %>%
          game_point = as.integer(game_point)) %>% 
   mutate(set_num = Set1 + Set2 + 1)
 
-tennis_clean2 <- tennis_clean %>% 
-  mutate(first_player_won = case_when(first_player_initials == Serving & isSvrWinner == 1 ~ 1,
-                                      first_player_initials != Serving & isSvrWinner == 1 ~ 0,
-                                      first_player_initials == Serving & isSvrWinner == 0 ~ 0,
-                                      first_player_initials != Serving & isSvrWinner == 0 ~ 1,
-                                      TRUE ~ 0),
-         second_player_won = 1 - first_player_won) %>% 
-  mutate(rally_bucket = round(rallyCount/2 + .01, digits = 0)) %>% 
-  mutate(pt_bucket = (trunc(Pt/100) + 1) * 100)
+tennis_clean2 <- tennis_clean %>%
+  mutate(
+    first_player_won = case_when(
+      first_player_initials == Serving & isSvrWinner == 1 ~ 1,
+      first_player_initials != Serving &
+        isSvrWinner == 1 ~ 0,
+      first_player_initials == Serving &
+        isSvrWinner == 0 ~ 0,
+      first_player_initials != Serving &
+        isSvrWinner == 0 ~ 1,
+      TRUE ~ 0
+    ),
+    second_player_won = 1 - first_player_won
+  ) %>%
+  mutate(rally_bucket = round(rallyCount / 2 + .01, digits = 0)) %>%
+  mutate(pt_bucket = (trunc(Pt / 100) + 1) * 100)
 
-match_winners <- tennis_clean2 %>% 
+tennis_clean3 <- tennis_clean2 %>%
+  mutate(
+    sets_needed_to_win = case_when(any(str_detect(
+      match_id,
+      c("US_Open", "Wimbledon", "Roland_Garros", "Australian_Open")
+    )) ~ 3L,
+    TRUE ~ 2L),
+    p1_game_points_pre_serve = if_else(
+      Svr == 1,
+      str_extract(Pts, "^[0-9]+"),
+      str_extract(Pts, "[0-9]+$")
+    ),
+    p2_game_points_pre_serve = if_else(
+      Svr == 2,
+      str_extract(Pts, "^[0-9]+"),
+      str_extract(Pts, "[0-9]+$")
+    )
+  )
+
+match_winners <- tennis_clean3 %>% 
   group_by(match_id) %>% 
   filter(Pt == max(Pt)) %>% 
   mutate(match_winner = case_when(Gm1 > Gm2 ~ first_player,
@@ -50,10 +76,10 @@ match_winners <- tennis_clean2 %>%
                                   TRUE ~ "winner_unknown")) %>% 
   select(match_id, match_winner)
 
-data_cleaned <- tennis_clean2 %>% 
+data_cleaned <- tennis_clean3 %>% 
   left_join(match_winners)
 
-rm(list = c("tennis_clean", "tennis_clean2", "tennis_small", "tennis_test", "match_winners"))
+rm(list = c("tennis_clean", "tennis_clean2", "tennis_clean3", "tennis_small", "tennis_test", "match_winners"))
 
 # Start of building win probability model ---------------------------------
 
