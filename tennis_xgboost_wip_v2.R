@@ -58,14 +58,16 @@ tennis_clean3 <- tennis_clean2 %>%
       TRUE ~ 2L),
     p1_game_points_pre_serve = if_else(
       Svr == 1,
-      str_extract(Pts, "^[0-9]+"),
-      str_extract(Pts, "[0-9]+$")
+      str_extract(Pts, "^[^-]+"), # Get everything from the start of the string that's not a hyphen
+      str_extract(Pts, "[^-]+$")  # Same but start from the end of the string
     ),
     p2_game_points_pre_serve = if_else(
       Svr == 2,
-      str_extract(Pts, "^[0-9]+"),
-      str_extract(Pts, "[0-9]+$")
-    )
+      str_extract(Pts, "^[^-]+"),
+      str_extract(Pts, "[^-]+$")
+    ),
+    p1_game_points_pre_serve = ifelse(p1_game_points_pre_serve == "AD", 45L, p1_game_points_pre_serve), # Making Advantage = a score of 45 so it works as an integer with xgboost later
+    p2_game_points_pre_serve = ifelse(p2_game_points_pre_serve == "AD", 45L, p2_game_points_pre_serve) # Be honest you thought advantage was basically 45 points already
   )
 
 match_winners <- tennis_clean3 %>% 
@@ -87,7 +89,9 @@ rm(list = c("tennis_clean", "tennis_clean2", "tennis_clean3", "tennis_small", "t
 
 # Add match outcome for first player
 data_cleaned <- data_cleaned %>% 
-  mutate(player_1_outcome = as.integer(if_else(first_player == match_winner, 1, 0)))
+  mutate(player_1_outcome = as.integer(if_else(first_player == match_winner, 1, 0)),
+         p1_game_points_pre_serve = as.integer(p1_game_points_pre_serve),
+         p2_game_points_pre_serve = as.integer(p2_game_points_pre_serve))
 
 # Split data
 set.seed(1234)
@@ -95,11 +99,13 @@ set.seed(1234)
 y.train <- data_cleaned$player_1_outcome
 
 x.train <- data_cleaned %>% 
-  select(Pt, Set1, Set2, Gm1, Gm2, Svr, `1stIn`, `2ndIn`, game_point, set_num) %>% 
+  select(Pt, Set1, Set2, Gm1, Gm2, Svr, `1stIn`, `2ndIn`, game_point, set_num,
+         sets_needed_to_win, p1_game_points_pre_serve, p2_game_points_pre_serve) %>% 
   as.matrix()
 
 x.train.leftover <- data_cleaned %>% 
-  select(-c(Pt, Set1, Set2, Gm1, Gm2, Svr, `1stIn`, `2ndIn`, game_point, set_num, player_1_outcome))
+  select(-c(Pt, Set1, Set2, Gm1, Gm2, Svr, `1stIn`, `2ndIn`, game_point, set_num,
+            sets_needed_to_win, p1_game_points_pre_serve, p2_game_points_pre_serve, player_1_outcome))
 
 x.test <- data_cleaned %>%
   filter(match_id == "20210613-M-Roland_Garros-F-Stefanos_Tsitsipas-Novak_Djokovic") %>% 
