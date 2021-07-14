@@ -49,11 +49,13 @@ tennis_clean2 <- tennis_clean %>%
 
 tennis_clean3 <- tennis_clean2 %>%
   mutate(
-    sets_needed_to_win = case_when(any(str_detect(
+    sets_needed_to_win = case_when(str_detect(
       match_id,
-      c("US_Open", "Wimbledon", "Roland_Garros", "Australian_Open")
-    )) ~ 3L,
-    TRUE ~ 2L),
+      "US_Open") ~ 3L,
+      str_detect(match_id, "Wimbledon") ~ 3L,
+      str_detect(match_id, "Roland_Garros") ~ 3L,
+      str_detect(match_id, "Australian_Open") ~ 3L,
+      TRUE ~ 2L),
     p1_game_points_pre_serve = if_else(
       Svr == 1,
       str_extract(Pts, "^[0-9]+"),
