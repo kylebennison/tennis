@@ -202,6 +202,10 @@ library(vip)
 
 vip(XGBm)
 
+importance_matric <- xgb.importance(model = XGBm)
+
+xgb.plot.importance(importance_matric, left_margin = 10, cex = .55)
+
 library(pROC)
 
 # This gives a more accurate auc
