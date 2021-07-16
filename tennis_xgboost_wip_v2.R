@@ -202,13 +202,16 @@ library(vip)
 
 vip(XGBm)
 
-library(tidymodels)
+library(pROC)
 
-# Roc Auc (not sure why it's inverted since auc when calling XGBm is .85)
-res %>% 
-  roc_auc(truth = as.factor(actualhomeresults), winprob)
+# This gives a more accurate auc
+auc <- pROC::auc(response = res$actualhomeresults, predictor = res$winprob)
 
-res %>% 
-  roc_curve(truth = as.factor(actualhomeresults), winprob) %>% 
-  ggplot(aes(x = 1- specificity, y = sensitivity)) +
-  geom_line()
+ten_roc <- roc(res$actualhomeresults, predict(XGBm, newdata = dtrain))
+ten_auc <- toString(ten_roc$auc)
+
+# plot of AUC
+ggwin_roc <- ggroc(ten_roc)
+
+ggwin_roc +
+  geom_text(mapping = aes(x = 0.5, y = 0.5, label = paste0('AUC of ', round(as.double(ten_auc), 5))))
