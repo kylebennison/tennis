@@ -43,9 +43,7 @@ tennis_clean2 <- tennis_clean %>%
       TRUE ~ 0
     ),
     second_player_won = 1 - first_player_won
-  ) %>%
-  mutate(rally_bucket = round(rallyCount / 2 + .01, digits = 0)) %>%
-  mutate(pt_bucket = (trunc(Pt / 100) + 1) * 100)
+  )
 
 tennis_clean3 <- tennis_clean2 %>%
   mutate(
@@ -93,30 +91,53 @@ data_cleaned <- data_cleaned %>%
          p1_game_points_pre_serve = as.integer(p1_game_points_pre_serve),
          p2_game_points_pre_serve = as.integer(p2_game_points_pre_serve))
 
+data_cleaned <- data_cleaned %>% 
+  filter(sets_needed_to_win == 3)
+
+plays.make.end.rows <- data_cleaned %>% 
+  group_by(match_id) %>%
+  filter(row_number() == n()) %>% 
+  ungroup() %>% 
+  mutate(Set1 = ifelse(player_1_outcome==1, 3, Set1),
+         Set2 = ifelse(player_1_outcome==1,Set2,3),
+         Pt=Pt+1,
+         Gm1 = ifelse(player_1_outcome==1,Gm1+1,Gm1),
+         Gm2 = ifelse(player_1_outcome==1,Gm2,Gm2+1))
+
+data_cleaned <- rbind(data_cleaned, plays.make.end.rows)
+
+#remove anything related to points
+data_cleaned2 <- data_cleaned %>% 
+  group_by(match_id, Set1, Set2, Gm1, Gm2) %>% 
+  filter(row_number()==1) %>% 
+  mutate(match_over = ifelse(Set1==3 | Set2==3, 1, 0),
+         set_num = ifelse(match_over==1,6,set_num)) %>% 
+  ungroup()
+
 # Split data
 set.seed(1234)
 
-y.train <- data_cleaned$player_1_outcome
+y.train <- data_cleaned2$player_1_outcome
 
-x.train <- data_cleaned %>% 
-  select(Pt, Set1, Set2, Gm1, Gm2, Svr, `1stIn`, `2ndIn`, game_point, set_num,
-         sets_needed_to_win, p1_game_points_pre_serve, p2_game_points_pre_serve) %>% 
+x.train <- data_cleaned2 %>% 
+  select(Pt, Set1, Set2, Gm1, Gm2, Svr, set_num,
+         sets_needed_to_win, match_over) %>% 
   as.matrix()
 
-x.train.leftover <- data_cleaned %>% 
-  select(-c(Pt, Set1, Set2, Gm1, Gm2, Svr, `1stIn`, `2ndIn`, game_point, set_num,
-            sets_needed_to_win, p1_game_points_pre_serve, p2_game_points_pre_serve, player_1_outcome))
+x.train.leftover <- data_cleaned2 %>% 
+  select(-c(Pt, Set1, Set2, Gm1, Gm2, Svr, set_num,
+            sets_needed_to_win, match_over))
 
-x.test <- data_cleaned %>%
+x.test <- data_cleaned2 %>%
   filter(match_id == "20210613-M-Roland_Garros-F-Stefanos_Tsitsipas-Novak_Djokovic") %>% 
-  select(Pt, Set1, Set2, Gm1, Gm2, Svr, `1stIn`, `2ndIn`, game_point, set_num,
-         sets_needed_to_win, p1_game_points_pre_serve, p2_game_points_pre_serve) %>% 
+  select(Pt, Set1, Set2, Gm1, Gm2, Svr, set_num,
+         sets_needed_to_win, match_over) %>% 
   as.matrix()
 
-x.test.leftover <- data_cleaned %>%
+x.test.leftover <- data_cleaned2 %>%
   filter(match_id == "20210613-M-Roland_Garros-F-Stefanos_Tsitsipas-Novak_Djokovic") %>% 
-  select(-c(Pt, Set1, Set2, Gm1, Gm2, Svr, `1stIn`, `2ndIn`, game_point, set_num,
-            sets_needed_to_win, p1_game_points_pre_serve, p2_game_points_pre_serve)) %>% 
+  select(-c(Pt, Set1, Set2, Gm1, Gm2, Svr, set_num,
+            sets_needed_to_win, match_over)) %>% 
   as.matrix()
 
 # Prep for XGboost
@@ -132,24 +153,31 @@ param <- list(  objective           = "binary:logistic",
                 booster             = "gbtree",
                 eval_metric         = "auc",
                 eta                 = 0.06,
-                max_depth           = 15,
+                max_depth           = 5,
                 min_child_weight    = 2,
-                subsample           = 1,
+                subsample           = .9,
                 colsample_bytree    = 1,
                 tree_method = 'hist'
 )
 
 #run this for training, otherwise skip
-XGBm <- xgb.cv(params=param,nfold=5,nrounds=100,missing=NA,data=dtrain,print_every_n=10, early_stopping_rounds = 25)
+XGBm <- xgb.cv(params=param,nfold=5,nrounds=500,missing=NA,data=dtrain,print_every_n=10, early_stopping_rounds = 25)
 
 #train the full model
 watchlist <- list( train = dtrain)
-XGBm <- xgb.train( params=param,nrounds=60,missing=NA,data=dtrain,watchlist=watchlist,print_every_n=100)
+XGBm <- xgb.train( params=param,nrounds=150,missing=NA,data=dtrain,watchlist=watchlist,print_every_n=100)
 
 library(zoo)
 
+#current x.test - djokobic 1
+x.test <- tibble(Pt=140, Set1=1, Set2=1, Gm1=0, Gm2=0, Svr=1, set_num=3, sets_needed_to_win=3,
+                 match_over=0) %>% 
+  as.matrix()
+
 res <- x.test %>% as_tibble()
+dtest <- xgb.DMatrix(x.test,missing=NA)
 res$winprob <- predict(XGBm, newdata = dtest)
+res$winprob
 
 res %>% 
   cbind(x.test.leftover) %>% 
@@ -170,7 +198,7 @@ x.train.copy$actualhomeresults <- y.train
 res <- cbind(x.train.copy, x.train.leftover)
 
 #plot any match
-match_title <- "20210613-M-Roland_Garros-F-Stefanos_Tsitsipas-Novak_Djokovic"
+match_title <- "20210711-M-Wimbledon-F-Novak_Djokovic-Matteo_Berrettini"
 
 res %>% 
   filter(match_id == match_title) %>% 
@@ -180,6 +208,10 @@ res %>%
   geom_text(aes(label = paste0(first_player, " Win Probability"),
                 x = 100,
                 y = .95))
+
+
+#plot a current match
+
 
 # Plot predicted vs. actual
 res %>% 
